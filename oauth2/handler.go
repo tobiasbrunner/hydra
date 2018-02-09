@@ -18,14 +18,20 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
+	//"github.com/gorilla/csrf"
 	"github.com/julienschmidt/httprouter"
+	"github.com/justinas/nosurf"
 	"github.com/ory/fosite"
+	"github.com/ory/fosite/handler/openid"
+	"github.com/ory/fosite/token/jwt"
+	"github.com/ory/hydra/client"
 	"github.com/ory/hydra/firewall"
 	"github.com/ory/hydra/pkg"
 	"github.com/pkg/errors"
@@ -47,6 +53,7 @@ const (
 	IntrospectPath = "/oauth2/introspect"
 	RevocationPath = "/oauth2/revoke"
 	FlushPath      = "/oauth2/flush"
+	ConsentPath    = "/oauth2/consent"
 
 	IntrospectScope = "hydra.introspect"
 
@@ -126,8 +133,6 @@ type FlushInactiveOAuth2TokensRequest struct {
 
 func (h *Handler) SetRoutes(r *httprouter.Router) {
 	r.POST(TokenPath, h.TokenHandler)
-	r.GET(AuthPath, h.AuthHandler)
-	r.POST(AuthPath, h.AuthHandler)
 	r.GET(DefaultConsentPath, h.DefaultConsentHandler)
 	r.POST(IntrospectPath, h.IntrospectHandler)
 	r.POST(RevocationPath, h.RevocationHandler)
@@ -135,6 +140,12 @@ func (h *Handler) SetRoutes(r *httprouter.Router) {
 	r.GET(UserinfoPath, h.UserinfoHandler)
 	r.POST(UserinfoPath, h.UserinfoHandler)
 	r.POST(FlushPath, h.FlushHandler)
+
+	//r.GET(AuthPath, h.AuthHandler)
+	//r.POST(AuthPath, h.AuthHandler)
+	csrfHandler := nosurf.New(http.HandlerFunc(h.AuthHandler))
+	r.Handler("POST", AuthPath, csrfHandler)
+	r.Handler("GET", AuthPath, csrfHandler)
 }
 
 // swagger:route GET /.well-known/openid-configuration oAuth2 getWellKnown
@@ -460,6 +471,42 @@ func (h *Handler) TokenHandler(w http.ResponseWriter, r *http.Request, _ httprou
 	h.OAuth2.WriteAccessResponse(w, accessRequest, accessResponse)
 }
 
+type consentTemplatePayload struct {
+	Client    *client.Client
+	CSRFToken string
+	Locale    string
+	Scopes    []consentTemplateScopePayload
+}
+
+type consentTemplateScopePayload struct {
+	ID          string
+	Title       string
+	Description string
+}
+
+var defaultScopes = map[string]consentTemplateScopePayload{
+	"offline_access": {Title: "Offline access", Description: "Offline access get that."},
+	"offline":        {Title: "Offline access", Description: "Offline access get that."},
+	"openid":         {Title: "Basic profile info", Description: "Offline access get that."},
+	"hydra.*":        {Title: "Complete hydra management", Description: "Offline access get that."},
+}
+
+func hydrateScopes(scopes []string) []consentTemplateScopePayload {
+	var hydratedScopes []consentTemplateScopePayload
+	for _, scope := range scopes {
+		if s, found := defaultScopes[scope]; found {
+			s.ID = scope
+			hydratedScopes = append(hydratedScopes, s)
+			continue
+		}
+		hydratedScopes = append(hydratedScopes, consentTemplateScopePayload{
+			ID:    scope,
+			Title: scope,
+		})
+	}
+	return hydratedScopes
+}
+
 // swagger:route GET /oauth2/auth oAuth2 oauthAuth
 //
 // The OAuth 2.0 authorize endpoint
@@ -478,7 +525,7 @@ func (h *Handler) TokenHandler(w http.ResponseWriter, r *http.Request, _ httprou
 //       302: emptyResponse
 //       401: genericError
 //       500: genericError
-func (h *Handler) AuthHandler(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+func (h *Handler) AuthHandler(w http.ResponseWriter, r *http.Request) {
 	var ctx = fosite.NewContext()
 
 	authorizeRequest, err := h.OAuth2.NewAuthorizeRequest(ctx, r)
@@ -488,38 +535,73 @@ func (h *Handler) AuthHandler(w http.ResponseWriter, r *http.Request, _ httprout
 		return
 	}
 
-	// A session_token will be available if the user was authenticated an gave consent
-	consent := authorizeRequest.GetRequestForm().Get("consent")
-	if consent == "" {
-		// otherwise redirect to log in endpoint
-		if err := h.redirectToConsent(w, r, authorizeRequest); err != nil {
-			pkg.LogError(err, h.L)
-			h.writeAuthorizeError(w, authorizeRequest, err)
+	if r.Method == "GET" {
+		var consentTemplatePayload = consentTemplatePayload{
+			Client:    authorizeRequest.GetClient().(*client.Client),
+			CSRFToken: nosurf.Token(r),
+			Locale:    "en",
+			Scopes:    hydrateScopes(authorizeRequest.GetRequestedScopes()),
+		}
+
+		consentTemplate, err := template.New("consent").Parse(consentTemplate)
+		if err != nil {
+			h.writeErrorTemplate(w, r, err)
 			return
 		}
+		_ = consentTemplate.Execute(w, consentTemplatePayload)
 		return
 	}
 
-	cookie, err := h.CookieStore.Get(r, consentCookieName)
-	if err != nil {
-		pkg.LogError(err, h.L)
-		h.writeAuthorizeError(w, authorizeRequest, errors.Wrapf(fosite.ErrServerError, "Could not open session: %s", err))
+	if !nosurf.VerifyToken(nosurf.Token(r), r.PostFormValue("csrf_token")) {
+		h.writeErrorTemplate(w, r, err)
 		return
 	}
 
-	// decode consent_token claims
-	// verify anti-CSRF (inject state) and anti-replay token (expiry time, good value would be 10 seconds)
-	session, err := h.Consent.ValidateConsentRequest(authorizeRequest, consent, cookie)
-	if err != nil {
-		pkg.LogError(err, h.L)
-		h.writeAuthorizeError(w, authorizeRequest, err)
-		return
-	}
-
-	if err := cookie.Save(r, w); err != nil {
-		pkg.LogError(err, h.L)
-		h.writeAuthorizeError(w, authorizeRequest, errors.Wrapf(fosite.ErrServerError, "Could not store session cookie: %s", err))
-		return
+	subject := "my-subject-yay"
+	session := &Session{
+		DefaultSession: &openid.DefaultSession{
+			Claims: &jwt.IDTokenClaims{
+				Audience:    authorizeRequest.GetClient().GetID(),
+				Subject:     subject,
+				Issuer:      h.Issuer,
+				IssuedAt:    time.Now(),
+				ExpiresAt:   time.Now().Add(time.Hour),
+				AuthTime:    time.Now(),
+				RequestedAt: time.Now().UTC(),
+				Extra: map[string]interface{}{
+					"name":                  "Aeneas Rekkas",
+					"given_name":            "Aeneas",
+					"family_name":           "Aeneas",
+					"middle_name":           "Aeneas",
+					"preferred_username":    "aeneas",
+					"nickname":              "aeneas",
+					"profile":               "https://github.com/arekkas/",
+					"picture":               "https://avatars0.githubusercontent.com/u/3372410?s=460&v=4",
+					"website":               "https://aeneas.io",
+					"email":                 "hi@ory.am",
+					"email_verified":        true,
+					"gender":                "male",
+					"birthdate":             "1990-1-1",
+					"zoneinfo":              "Europe/Berlin",
+					"locale":                "de-DE",
+					"phone_number":          "+1 (604) 555-1234;ext=5678",
+					"phone_number_verified": true,
+					"address": map[string]interface{}{
+						"formatted":      "Cecilia Chapman\n711-2880 Nulla St.\nMankato Mississippi 96522\n(257) 563-7401",
+						"street_address": "711-2880 Nulla St.\nMankato Mississippi 96522",
+						"locality":       "Mankato",
+						"region":         "Mississippi",
+						"postal_code":    "96522",
+						"country":        "USA",
+					},
+					"updated_at": 1000,
+				},
+			},
+			// required for lookup on jwk endpoint
+			Headers: &jwt.Headers{Extra: map[string]interface{}{"kid": "mock-key-id"}},
+			Subject: subject,
+		},
+		Extra: map[string]interface{}{},
 	}
 
 	// done
@@ -531,6 +613,10 @@ func (h *Handler) AuthHandler(w http.ResponseWriter, r *http.Request, _ httprout
 	}
 
 	h.OAuth2.WriteAuthorizeResponse(w, authorizeRequest, response)
+}
+
+func (h *Handler) writeErrorTemplate(w http.ResponseWriter, r *http.Request, err error) {
+	http.Error(w, err.Error(), http.StatusInternalServerError)
 }
 
 func (h *Handler) redirectToConsent(w http.ResponseWriter, r *http.Request, authorizeRequest fosite.AuthorizeRequester) error {

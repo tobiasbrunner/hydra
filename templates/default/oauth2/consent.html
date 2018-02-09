@@ -1,0 +1,47 @@
+
+<!DOCTYPE html>
+<html lang="{{.Locale}}">
+<head>
+    <meta charset="UTF-8">
+    <title>Authorize Application {{.Client.Name}}</title>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+</head>
+<body>
+<div>
+    <h1>Authorize Application</h1>
+    <p>Grant application {{.Client.Name}} by {{.Client.Owner}} access to your data.</p>
+    <div class="row">
+        <div class="left">
+            <form method="post">
+                <ul>
+                {{range .Scopes}}
+                    <li>
+                        <input type="checkbox" id="scope_{{.ID}}" name="scopes[]" value="{{.ID}}">
+                        <label for="scope_{{.ID}}"><h3>{{.Title}}</h3></label>
+                        <p>{{.Description}}</p>
+                    </li>
+                {{end}}
+                </ul>
+                <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+                <button type="submit" name="authorization" value="grant">Authorize application</button>
+                <button type="submit" name="authorization" value="reject">Deny authorization</button>
+            </form>
+        </div>
+        <div class="right">
+            <h2>{{.Client.Name}}</h2>
+            <p></p>
+            <ul>
+                <li><a href="{{.Client.TermsOfServiceURI}}">Visit application's website</a></li>
+                <li><a href="{{.Client.TermsOfServiceURI}}">Read application's terms of service</a></li>
+                <li><a href="{{.Client.PolicyURI}}">Read application's privacy policy</a></li>
+            </ul>
+        </div>
+    </div>
+</div>
+</body>
+</html>
