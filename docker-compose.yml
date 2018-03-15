@@ -31,6 +31,7 @@ services:
       - CONSENT_URL=http://localhost:3000/consent
       - DATABASE_URL=memory
       - FORCE_ROOT_CLIENT_CREDENTIALS=hsr-demo:demo-password
+      - ROOT_REDIR_URL=http://localhost:4000/callback
       - SYSTEM_SECRET=youReallyNeedToChangeThis
     restart: unless-stopped
 
@@ -45,6 +46,18 @@ services:
       - hydra
     ports:
       - "3000:3000"
+    restart: unless-stopped
+
+  client:
+    build: ./demo-client
+    environment:
+      - HYDRA_URL=http://hydra:4444
+      - HYDRA_CLIENT_ID=hsr-demo
+      - HYDRA_CLIENT_SECRET=demo-password
+    links:
+      - hydra
+    ports:
+      - "4000:3000"
     restart: unless-stopped
 
 volumes:
