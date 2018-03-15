@@ -93,4 +93,14 @@ func (h *Handler) createRootIfNewInstall(c *config.Config) {
 		ID:          "default-admin-policy",
 	})
 	pkg.Must(err, "Could not create admin policy because %s", err)
+
+	err = ctx.LadonManager.Create(&ladon.DefaultPolicy{
+		Description: "Allow everyone including anonymous users to read JSON Web Keys having Key ID *public*.",
+		Subjects:    []string{"<.*>"},
+		Effect:      ladon.AllowAccess,
+		Resources:   []string{"rn:hydra:keys:<[^:]+>:public"},
+		Actions:     []string{"get"},
+		ID:          "public-key-policy",
+	})
+	pkg.Must(err, "Could not create policy for keys because %s", err)
 }
