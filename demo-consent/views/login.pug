@@ -1,0 +1,21 @@
+extends layout
+
+block content
+  h1= title
+  if error
+    p.
+        #{error}
+  form(action="",method="POST")
+      table
+        tr
+          td
+            input(type="email",name="email",placeholder="email@foobar.com")
+          td.
+            (= "#{user.email}")
+        tr
+          td
+            input(type="password",name="password")
+          td.
+            (= "#{user.password}")
+      input(type="hidden",name="consent",value=consent)
+      input(type="submit",value="OK")

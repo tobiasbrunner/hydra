@@ -1,0 +1,20 @@
+extends layout
+
+block content
+  h1= title
+
+  if error
+    p.
+      #{error}
+
+  form(action="",method="POST")
+    p.
+      Die Anwendung verlangt Zugriff auf folgende Scopes:
+    each scope in scopes
+        input(type="checkbox",id=scope,value=scope,name="allowed_scopes")
+        label(for=scope) #{scope}
+        br
+
+    input(type="hidden",name="consent",value=consent)
+    p
+      input(type="submit",value="Erlauben")

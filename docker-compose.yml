@@ -35,12 +35,12 @@ services:
     restart: unless-stopped
 
   consent:
+    build: ./demo-consent
     environment:
       - HYDRA_URL=http://hydra:4444
       - HYDRA_CLIENT_ID=admin
       - HYDRA_CLIENT_SECRET=demo-password
       - NODE_TLS_REJECT_UNAUTHORIZED=0
-    image: oryd/hydra-consent-app-express:v0.10.0-alpha.7
     links:
       - hydra
     ports:
