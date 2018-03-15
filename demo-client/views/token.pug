@@ -1,0 +1,28 @@
+extends layout
+
+block content
+  h1 Erfolreiche Autorisierung
+
+  p
+    a(href=route ? '/' + route : '/') Zurück zum Start
+
+  h2 Resultat des Token Exchanges
+  pre #{JSON.stringify(token, null, 4)}
+
+  if token.refresh_token
+    h2 Refresh Token
+    form(action="",method="POST")
+      input(type="hidden",name="refresh_token",value=token.refresh_token)
+      p Refresh Token verwenden, um einen neuen Access Token anzufordern:
+      p
+        input(type="submit",value="Token Erneuern")
+
+  if id
+    h2 ID Token
+    p Dies sind die decodierten drei Teile des mitgelieferten ID Tokens:
+    h3 Header
+    pre #{JSON.stringify(id.header, null, 4)}
+    h3 Token
+    pre #{JSON.stringify(id.payload, null, 4)}
+    h3 Signatur
+    pre #{JSON.stringify(id.signature, null, 4)}

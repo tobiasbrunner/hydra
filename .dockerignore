@@ -2,4 +2,5 @@ vendor/
 .idea/
 .vagrant/
 docs/
+demo-client/
 demo-consent/
