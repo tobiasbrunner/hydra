@@ -65,6 +65,7 @@ func (h *Handler) createRootIfNewInstall(c *config.Config) {
 		}
 	}
 
+	rootRedir := os.Getenv("ROOT_REDIR_URL")
 	c.GetLogger().Warn("No clients were found. Creating a temporary root client...")
 	root := &client.Client{
 		ID:            id,
@@ -72,7 +73,7 @@ func (h *Handler) createRootIfNewInstall(c *config.Config) {
 		ResponseTypes: []string{"id_token", "code", "token"},
 		GrantTypes:    []string{"implicit", "refresh_token", "authorization_code", "password", "client_credentials"},
 		Scope:         "hydra.* openid offline hydra email profile",
-		RedirectURIs:  []string{"http://localhost:4445/callback"},
+		RedirectURIs:  []string{"http://localhost:4445/callback", rootRedir},
 		Secret:        secret,
 	}
 
